@@ -302,6 +302,7 @@ export const apiService = {
       const dashboardResult = await this.generateDashboard({
         summary_data: summaryData,
         dashboard_type: dashboardConfig.type || 'cost_optimization',
+        dashboard_name: dashboardConfig.dashboard_name || 'costAnalysis',
         title: `Complete Analysis Dashboard - ${workflowId}`,
         embed_options: dashboardConfig.embed_options
       });

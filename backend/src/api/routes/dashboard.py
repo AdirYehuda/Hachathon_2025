@@ -136,34 +136,88 @@ async def complete_workflow(
             if hasattr(query, "query"):  # CostOptimizationQuery
                 # Check if specific resource types are selected
                 if hasattr(query, "resource_types") and query.resource_types:
-                    # Process each resource type specifically
+                    # Process each resource type specifically with targeted filtering
                     for resource_type in query.resource_types:
                         logger.info(f"Processing specific resource type: {resource_type}")
                         
                         # Call the specific analysis endpoint based on resource type
                         if resource_type.upper() == "EC2":
-                            result = await amazon_q.analyze_ec2_underutilization(query.time_range or "30d")
+                            # Extract any instance filters from the query
+                            instance_filters = []
+                            if "underutilized" in query.query.lower() or "idle" in query.query.lower():
+                                instance_filters.append("low-cpu-utilization")
+                            if "development" in query.query.lower() or "test" in query.query.lower():
+                                instance_filters.append("non-production")
+                            
+                            result = await amazon_q.analyze_ec2_underutilization(
+                                time_range=query.time_range or "30d",
+                                instance_filters=instance_filters if instance_filters else None
+                            )
                             query_type = "ec2_analysis"
                             original_query = f"EC2 underutilization analysis - {query.query}"
+                            
                         elif resource_type.upper() == "EBS":
-                            result = await amazon_q.analyze_ebs_underutilization()
+                            # Extract volume filters from the query
+                            volume_filters = []
+                            if "unattached" in query.query.lower():
+                                volume_filters.append("unattached-volumes")
+                            if "unused" in query.query.lower() or "idle" in query.query.lower():
+                                volume_filters.append("low-iops")
+                                
+                            result = await amazon_q.analyze_ebs_underutilization(
+                                volume_filters=volume_filters if volume_filters else None
+                            )
                             query_type = "ebs_analysis"
                             original_query = f"EBS underutilization analysis - {query.query}"
+                            
                         elif resource_type.upper() == "S3":
-                            result = await amazon_q.analyze_s3_underutilization()
+                            # Extract bucket filters from the query
+                            bucket_filters = []
+                            if "empty" in query.query.lower() or "unused" in query.query.lower():
+                                bucket_filters.append("low-activity")
+                            if "old" in query.query.lower() or "archive" in query.query.lower():
+                                bucket_filters.append("lifecycle-optimization")
+                                
+                            result = await amazon_q.analyze_s3_underutilization(
+                                bucket_filters=bucket_filters if bucket_filters else None
+                            )
                             query_type = "s3_analysis"
                             original_query = f"S3 underutilization analysis - {query.query}"
+                            
                         elif resource_type.upper() == "LAMBDA":
-                            result = await amazon_q.analyze_lambda_underutilization()
+                            # Extract function filters from the query
+                            function_filters = []
+                            if "unused" in query.query.lower() or "idle" in query.query.lower():
+                                function_filters.append("low-invocation")
+                            if "memory" in query.query.lower() or "size" in query.query.lower():
+                                function_filters.append("over-provisioned")
+                                
+                            result = await amazon_q.analyze_lambda_underutilization(
+                                function_filters=function_filters if function_filters else None
+                            )
                             query_type = "lambda_analysis"
                             original_query = f"Lambda underutilization analysis - {query.query}"
+                            
                         elif resource_type.upper() == "RDS":
-                            result = await amazon_q.analyze_rds_underutilization()
+                            # Extract RDS instance filters from the query
+                            instance_filters = []
+                            if "underutilized" in query.query.lower() or "idle" in query.query.lower():
+                                instance_filters.append("low-cpu")
+                            if "development" in query.query.lower() or "test" in query.query.lower():
+                                instance_filters.append("non-production")
+                                
+                            result = await amazon_q.analyze_rds_underutilization(
+                                instance_filters=instance_filters if instance_filters else None
+                            )
                             query_type = "rds_analysis"
                             original_query = f"RDS underutilization analysis - {query.query}"
                         else:
-                            # Fallback to general cost optimization for other resource types
-                            result = await amazon_q.query_cost_optimization(f"{query.query} - Focus on {resource_type}")
+                            # Fallback to targeted cost optimization for other resource types
+                            result = await amazon_q.query_cost_optimization(
+                                query=f"{query.query} - Focus on {resource_type}",
+                                focus_services=[resource_type.upper()],
+                                resource_filters=["underutilization", "cost-optimization"]
+                            )
                             query_type = "cost_optimization"
                             original_query = f"{resource_type} cost optimization - {query.query}"
 
@@ -193,8 +247,12 @@ async def complete_workflow(
                             "resource_type": resource_type.upper(),
                         })
                 else:
-                    # No specific resource types selected, use general cost optimization
-                    result = await amazon_q.query_cost_optimization(query.query)
+                    # No specific resource types selected, use targeted cost optimization
+                    result = await amazon_q.query_cost_optimization(
+                        query=query.query,
+                        focus_services=None,  # Will analyze common services
+                        resource_filters=["cost-optimization", "underutilization"]
+                    )
                     query_type = "cost_optimization"
                     original_query = query.query
                     
@@ -301,6 +359,7 @@ async def complete_workflow(
         
         dashboard_config = request.dashboard_config or {}
         dashboard_type = dashboard_config.get("type", "cost_optimization")
+        dashboard_name = dashboard_config.get("dashboard_name", "costAnalysis")
 
         dashboard_html = await dashboard_service.create_dashboard(
             summary_data=summary_data, 
@@ -310,7 +369,6 @@ async def complete_workflow(
 
         # Deploy to S3 with human-readable naming
         readable_timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        dashboard_name = dashboard_config.get("dashboard_name", "costAnalysis")
         site_id = f"{dashboard_name}_{readable_timestamp}"
         static_assets = dashboard_service.get_static_assets()
 

@@ -99,8 +99,8 @@ const QueryForm = ({ onAddQuery, disabled }) => {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         disabled={disabled}
-        placeholder="e.g., Analyze EC2 instances for cost optimization opportunities in production environment"
-        helperText="Describe what you want to analyze for cost optimization"
+        placeholder="e.g., Find underutilized EC2 instances in development environment, or Identify unused S3 buckets with old storage classes"
+        helperText="Describe specific cost optimization targets. The analysis will focus only on the resource types you select below."
         sx={{ mb: 2 }}
       />
 
@@ -145,7 +145,7 @@ const QueryForm = ({ onAddQuery, disabled }) => {
           ))}
         </Select>
         <FormHelperText>
-          Leave empty to analyze all resource types
+          Select specific resource types for targeted analysis. Only selected resources will be analyzed, avoiding broad account scanning.
         </FormHelperText>
       </FormControl>
 

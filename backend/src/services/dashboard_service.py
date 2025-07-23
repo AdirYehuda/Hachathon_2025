@@ -4,10 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Dict, List
 
-import plotly.express as px
-import plotly.graph_objects as go
 from jinja2 import Template
-from plotly.offline import plot
 
 logger = logging.getLogger(__name__)
 
@@ -27,171 +24,37 @@ class DashboardService:
             summary_data["dashboard_name"] = dashboard_name
             return await self._create_raw_data_dashboard(summary_data)
 
-        # Parse data and create visualizations for normal dashboard
-        charts = await self._create_charts(summary_data, dashboard_type)
-
         # Generate unique dashboard ID using provided name
         readable_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         dashboard_id = f"{dashboard_name}_{readable_timestamp}"
 
-        # Generate HTML with embedded charts
+        # Extract actionable recommendations for simplified display
+        recommendations = summary_data.get("priority_recommendations", summary_data.get("actionable_recommendations", []))
+        total_savings = summary_data.get("total_cost_savings", summary_data.get("total_savings", {}))
+        quick_wins = summary_data.get("quick_wins", [])
+        implementation_plan = summary_data.get("implementation_plan", {})
+
+        # Generate HTML focused on actionable recommendations
         dashboard_html = self.template_loader.render(
             title=f"Cost Optimization Dashboard - {datetime.now().strftime('%Y-%m-%d')}",
             dashboard_id=dashboard_id,
-            charts=charts,
-            summary=summary_data.get("executive_summary", "No summary available"),
-            recommendations=summary_data.get("recommendations", []),
-            key_metrics=summary_data.get("key_metrics", {}),
+            executive_summary=summary_data.get("executive_summary", "Cost optimization analysis completed."),
+            total_savings=total_savings,
+            recommendations=recommendations,
+            quick_wins=quick_wins,
+            implementation_plan=implementation_plan,
+            savings_by_service=summary_data.get("savings_by_service", {}),
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"),
         )
 
         return dashboard_html
 
     async def _create_charts(self, data: Dict, dashboard_type: str) -> List[str]:
-        """Create Plotly charts based on data and dashboard type."""
-        charts = []
-
-        try:
-            if dashboard_type == "cost_optimization":
-                # Cost savings chart
-                if "cost_savings" in data and data["cost_savings"]:
-                    fig = px.bar(
-                        x=list(data["cost_savings"].keys()),
-                        y=list(data["cost_savings"].values()),
-                        title="Potential Cost Savings by Category",
-                        labels={"x": "Category", "y": "Savings ($)"},
-                        color=list(data["cost_savings"].values()),
-                        color_continuous_scale="Viridis",
-                    )
-                    fig.update_layout(
-                        showlegend=False,
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                    )
-                    charts.append(plot(fig, output_type="div", include_plotlyjs=False))
-
-                # Resource utilization chart
-                if "utilization_data" in data and data["utilization_data"]:
-                    util_data = data["utilization_data"]
-                    if "cpu_usage" in util_data and "timestamps" in util_data:
-                        fig = go.Figure(
-                            data=go.Scatter(
-                                x=util_data["timestamps"],
-                                y=util_data["cpu_usage"],
-                                mode="lines+markers",
-                                name="CPU Utilization (%)",
-                                line=dict(color="#1f77b4", width=3),
-                            )
-                        )
-                        fig.update_layout(
-                            title="Resource Utilization Over Time",
-                            xaxis_title="Time",
-                            yaxis_title="Utilization (%)",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            paper_bgcolor="rgba(0,0,0,0)",
-                        )
-                        charts.append(
-                            plot(fig, output_type="div", include_plotlyjs=False)
-                        )
-
-                # Recommendations priority chart
-                if "recommendations" in data and data["recommendations"]:
-                    rec_data = data["recommendations"][:5]  # Top 5 recommendations
-                    categories = [rec.get("category", "Unknown") for rec in rec_data]
-                    savings = [rec.get("estimated_savings", 0) for rec in rec_data]
-
-                    fig = px.horizontal_bar(
-                        x=savings,
-                        y=categories,
-                        title="Top 5 Recommendations by Estimated Savings",
-                        labels={"x": "Estimated Savings ($)", "y": "Category"},
-                        color=savings,
-                        color_continuous_scale="RdYlGn",
-                    )
-                    fig.update_layout(
-                        showlegend=False,
-                        plot_bgcolor="rgba(0,0,0,0)",
-                        paper_bgcolor="rgba(0,0,0,0)",
-                    )
-                    charts.append(plot(fig, output_type="div", include_plotlyjs=False))
-
-                # Key metrics gauge charts
-                if "key_metrics" in data and data["key_metrics"]:
-                    metrics = data["key_metrics"]
-                    if "total_savings" in metrics:
-                        fig = go.Figure(
-                            go.Indicator(
-                                mode="gauge+number+delta",
-                                value=metrics["total_savings"],
-                                domain={"x": [0, 1], "y": [0, 1]},
-                                title={"text": "Total Potential Savings ($)"},
-                                gauge={
-                                    "axis": {
-                                        "range": [
-                                            None,
-                                            metrics.get(
-                                                "max_savings",
-                                                metrics["total_savings"] * 1.5,
-                                            ),
-                                        ]
-                                    },
-                                    "bar": {"color": "darkgreen"},
-                                    "steps": [
-                                        {
-                                            "range": [
-                                                0,
-                                                metrics["total_savings"] * 0.5,
-                                            ],
-                                            "color": "lightgray",
-                                        },
-                                        {
-                                            "range": [
-                                                metrics["total_savings"] * 0.5,
-                                                metrics["total_savings"],
-                                            ],
-                                            "color": "gray",
-                                        },
-                                    ],
-                                    "threshold": {
-                                        "line": {"color": "red", "width": 4},
-                                        "thickness": 0.75,
-                                        "value": metrics["total_savings"] * 0.9,
-                                    },
-                                },
-                            )
-                        )
-                        fig.update_layout(
-                            paper_bgcolor="rgba(0,0,0,0)",
-                            plot_bgcolor="rgba(0,0,0,0)",
-                            height=300,
-                        )
-                        charts.append(
-                            plot(fig, output_type="div", include_plotlyjs=False)
-                        )
-
-        except Exception as e:
-            logger.error(f"Error creating charts: {e}")
-            # Add a fallback chart
-            fig = go.Figure()
-            fig.add_annotation(
-                text="Dashboard data is being processed...",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                xanchor="center",
-                yanchor="middle",
-                showarrow=False,
-                font_size=16,
-            )
-            fig.update_layout(
-                title="Dashboard Loading",
-                plot_bgcolor="rgba(0,0,0,0)",
-                paper_bgcolor="rgba(0,0,0,0)",
-            )
-            charts.append(plot(fig, output_type="div", include_plotlyjs=False))
-
-        return charts
+        """Create simple visualizations (deprecated - now focused on actionable recommendations)."""
+        # This method is deprecated in favor of actionable recommendations
+        # Return empty list as charts are no longer needed
+        logger.info("Chart generation skipped - focusing on actionable recommendations")
+        return []
 
     async def _create_raw_data_dashboard(self, data: Dict) -> str:
         """Creates a dashboard HTML specifically for raw data fallback cases."""
@@ -338,7 +201,7 @@ class DashboardService:
         return raw_data_html
 
     def _get_html_template(self) -> str:
-        """HTML template for React-ready dashboard with static serving optimization."""
+        """HTML template for actionable cost optimization dashboard."""
         return """
         <!DOCTYPE html>
         <html lang="en">
@@ -346,11 +209,6 @@ class DashboardService:
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>{{ title }}</title>
-            <!-- React Runtime and Chart Libraries for Static Serving -->
-            <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-            <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
             <style>
                 * {
@@ -363,7 +221,7 @@ class DashboardService:
                     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                     line-height: 1.6;
                     color: #333;
-                    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     min-height: 100vh;
                 }
                 
@@ -377,8 +235,8 @@ class DashboardService:
                     text-align: center;
                     background: white;
                     padding: 30px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
                     margin-bottom: 30px;
                 }
                 
@@ -388,318 +246,429 @@ class DashboardService:
                     margin-bottom: 10px;
                 }
                 
-                .header .timestamp {
+                .timestamp {
                     color: #7f8c8d;
                     font-size: 0.9em;
                 }
                 
-                .metrics-grid {
+                .savings-summary {
+                    background: linear-gradient(135deg, #27ae60, #2ecc71);
+                    color: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                    text-align: center;
+                }
+                
+                .savings-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin-top: 20px;
+                }
+                
+                .savings-metric {
+                    background: rgba(255,255,255,0.2);
+                    padding: 20px;
+                    border-radius: 10px;
+                    text-align: center;
+                }
+                
+                .savings-value {
+                    font-size: 2.2em;
+                    font-weight: bold;
+                    margin-bottom: 5px;
+                }
+                
+                .savings-label {
+                    font-size: 0.9em;
+                    opacity: 0.9;
+                }
+                
+                .executive-summary { 
+                    background: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                }
+                
+                .section-title {
+                    color: #2c3e50;
+                    font-size: 1.8em;
+                    margin-bottom: 20px;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                }
+                
+                .recommendations-grid {
+                    display: grid;
                     gap: 20px;
                     margin-bottom: 30px;
                 }
                 
-                .metric-card {
+                .recommendation-card {
                     background: white;
                     padding: 25px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    text-align: center;
-                    transition: transform 0.3s ease;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    border-left: 5px solid #3498db;
+                    position: relative;
                 }
                 
-                .metric-card:hover {
-                    transform: translateY(-5px);
+                .recommendation-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 15px;
                 }
                 
-                .metric-value {
-                    font-size: 2.5em;
+                .recommendation-rank {
+                    background: linear-gradient(135deg, #3498db, #2980b9);
+                    color: white;
+                    padding: 8px 15px;
+                    border-radius: 50px;
                     font-weight: bold;
-                    color: #27ae60;
-                    margin-bottom: 10px;
-                }
-                
-                .metric-label {
-                    color: #7f8c8d;
                     font-size: 0.9em;
-                    text-transform: uppercase;
-                    letter-spacing: 1px;
                 }
                 
-                .summary { 
-                    background: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    margin-bottom: 30px;
+                .monthly-saving {
+                    background: linear-gradient(135deg, #27ae60, #2ecc71);
+                    color: white;
+                    padding: 8px 15px;
+                    border-radius: 50px;
+                    font-weight: bold;
                 }
                 
-                .summary h2 {
-                    color: #2c3e50;
-                    margin-bottom: 20px;
-                    font-size: 1.8em;
+                .resource-info {
+                    margin-bottom: 15px;
                 }
                 
-                .chart-container { 
-                    background: white;
-                    padding: 25px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    margin-bottom: 30px;
-                }
-                
-                .recommendations { 
-                    background: white;
-                    padding: 30px;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    margin-bottom: 30px;
-                }
-                
-                .recommendations h2 {
-                    color: #2c3e50;
-                    margin-bottom: 25px;
-                    font-size: 1.8em;
-                }
-                
-                .recommendation-item { 
-                    margin-bottom: 20px;
-                    padding: 20px;
+                .resource-id {
+                    font-family: 'Courier New', monospace;
                     background: #f8f9fa;
-                    border-radius: 8px;
-                    border-left: 4px solid #3498db;
-                    transition: all 0.3s ease;
+                    padding: 5px 10px;
+                    border-radius: 5px;
+                    font-size: 0.9em;
+                    color: #e74c3c;
+                    font-weight: bold;
                 }
                 
-                .recommendation-item:hover {
-                    background: #e9ecef;
-                    border-left-color: #2980b9;
+                .resource-type {
+                    background: #3498db;
+                    color: white;
+                    padding: 3px 8px;
+                    border-radius: 3px;
+                    font-size: 0.8em;
+                    margin-left: 10px;
                 }
                 
-                .recommendation-category {
+                .implementation-steps {
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-top: 15px;
+                }
+                
+                .step {
+                    padding: 8px 0;
+                    border-bottom: 1px solid #dee2e6;
+                }
+                
+                .step:last-child {
+                    border-bottom: none;
+                }
+                
+                .step-number {
+                    background: #3498db;
+                    color: white;
+                    padding: 2px 8px;
+                    border-radius: 50%;
+                    font-size: 0.8em;
+                    margin-right: 10px;
+                    font-weight: bold;
+                }
+                
+                .quick-wins {
+                    background: linear-gradient(135deg, #f39c12, #e67e22);
+                    color: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                }
+                
+                .quick-win-item {
+                    background: rgba(255,255,255,0.2);
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 15px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                
+                .services-breakdown {
+                    background: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                }
+                
+                .service-item {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 15px;
+                    border-bottom: 1px solid #ecf0f1;
+                }
+                
+                .service-item:last-child {
+                    border-bottom: none;
+                }
+                
+                .service-name {
                     font-weight: bold;
                     color: #2c3e50;
-                    font-size: 1.1em;
-                    margin-bottom: 8px;
                 }
                 
-                .recommendation-description {
-                    color: #495057;
-                    margin-bottom: 10px;
-                    line-height: 1.6;
-                }
-                
-                .recommendation-savings {
-                    color: #27ae60;
+                .service-saving {
+                    background: #27ae60;
+                    color: white;
+                    padding: 5px 12px;
+                    border-radius: 20px;
                     font-weight: bold;
-                    font-size: 1.1em;
+                }
+                
+                .implementation-timeline {
+                    background: white;
+                    padding: 30px;
+                    border-radius: 15px;
+                    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+                    margin-bottom: 30px;
+                }
+                
+                .timeline-section {
+                    margin-bottom: 20px;
+                }
+                
+                .timeline-title {
+                    color: #2c3e50;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    padding: 10px 15px;
+                    background: #ecf0f1;
+                    border-radius: 8px;
+                }
+                
+                .timeline-item {
+                    padding: 8px 0;
+                    padding-left: 20px;
+                    border-left: 3px solid #3498db;
+                    margin-left: 10px;
                 }
                 
                 .footer {
                     text-align: center;
                     padding: 30px;
-                    color: #7f8c8d;
+                    color: white;
                     font-size: 0.9em;
+                    background: rgba(255,255,255,0.1);
+                    border-radius: 15px;
                 }
                 
-                .embed-info {
-                    background: #e8f4fd;
-                    padding: 20px;
-                    border-radius: 8px;
-                    margin-bottom: 20px;
-                    border: 1px solid #b8daff;
+                .risk-badge {
+                    padding: 3px 8px;
+                    border-radius: 3px;
+                    font-size: 0.8em;
+                    font-weight: bold;
                 }
                 
-                .embed-info h3 {
-                    color: #004085;
-                    margin-bottom: 10px;
-                }
-                
-                .embed-code {
-                    background: #f8f9fa;
-                    padding: 10px;
-                    border-radius: 4px;
-                    font-family: monospace;
-                    font-size: 0.85em;
-                    word-break: break-all;
-                    border: 1px solid #dee2e6;
-                }
+                .risk-low { background: #27ae60; color: white; }
+                .risk-medium { background: #f39c12; color: white; }
+                .risk-high { background: #e74c3c; color: white; }
                 
                 @media (max-width: 768px) {
-                    .container {
-                        padding: 10px;
-                    }
-                    
-                    .header h1 {
-                        font-size: 2em;
-                    }
-                    
-                    .metrics-grid {
-                        grid-template-columns: 1fr;
-                    }
+                    .container { padding: 10px; }
+                    .header h1 { font-size: 2em; }
+                    .savings-grid { grid-template-columns: 1fr; }
+                    .recommendation-header { flex-direction: column; gap: 10px; }
                 }
             </style>
         </head>
         <body>
             <div class="container">
+                <!-- Header -->
                 <div class="header">
-                    <h1><i class="fas fa-chart-line"></i> {{ title }}</h1>
+                    <h1><i class="fas fa-dollar-sign"></i> {{ title }}</h1>
                     <div class="timestamp">Generated on {{ timestamp }}</div>
                 </div>
                 
-                {% if key_metrics %}
-                <div class="metrics-grid">
-                    {% for metric, value in key_metrics.items() %}
-                    <div class="metric-card">
-                        <div class="metric-value">{{ value }}</div>
-                        <div class="metric-label">{{ metric.replace('_', ' ').title() }}</div>
+                <!-- Total Savings Summary -->
+                {% if total_savings %}
+                <div class="savings-summary">
+                    <h2><i class="fas fa-piggy-bank"></i> Total Cost Savings Potential</h2>
+                    <div class="savings-grid">
+                        {% if total_savings.monthly_savings %}
+                        <div class="savings-metric">
+                            <div class="savings-value">${{ total_savings.monthly_savings }}</div>
+                            <div class="savings-label">Monthly Savings</div>
+                        </div>
+                        {% endif %}
+                        {% if total_savings.yearly_savings %}
+                        <div class="savings-metric">
+                            <div class="savings-value">${{ total_savings.yearly_savings }}</div>
+                            <div class="savings-label">Yearly Savings</div>
+                        </div>
+                        {% endif %}
+                        {% if total_savings.number_of_opportunities %}
+                        <div class="savings-metric">
+                            <div class="savings-value">{{ total_savings.number_of_opportunities }}</div>
+                            <div class="savings-label">Opportunities</div>
+                        </div>
+                        {% endif %}
+                        {% if total_savings.highest_single_saving %}
+                        <div class="savings-metric">
+                            <div class="savings-value">${{ total_savings.highest_single_saving }}</div>
+                            <div class="savings-label">Biggest Single Win</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Executive Summary -->
+                <div class="executive-summary">
+                    <h2 class="section-title"><i class="fas fa-file-alt"></i> Executive Summary</h2>
+                    <p>{{ executive_summary }}</p>
+                </div>
+                
+                <!-- Quick Wins -->
+                {% if quick_wins %}
+                <div class="quick-wins">
+                    <h2 class="section-title"><i class="fas fa-bolt"></i> Quick Wins - Implement Now</h2>
+                    {% for win in quick_wins %}
+                    <div class="quick-win-item">
+                        <div>
+                            <strong>{{ win.action }}</strong>
+                            <br><small>Time needed: {{ win.time_needed }}</small>
+                        </div>
+                        <div class="monthly-saving">{{ win.saving }}</div>
                     </div>
                     {% endfor %}
                 </div>
                 {% endif %}
                 
-                <div class="summary">
-                    <h2><i class="fas fa-file-alt"></i> Executive Summary</h2>
-                    <p>{{ summary }}</p>
-                </div>
-                
-                {% for chart in charts %}
-                <div class="chart-container">
-                    {{ chart|safe }}
-                </div>
-                {% endfor %}
-                
-                <div class="recommendations">
-                    <h2><i class="fas fa-lightbulb"></i> Recommendations</h2>
+                <!-- Priority Recommendations -->
+                {% if recommendations %}
+                <div class="recommendations-grid">
+                    <h2 class="section-title"><i class="fas fa-lightbulb"></i> Priority Recommendations</h2>
                     {% for rec in recommendations %}
-                    <div class="recommendation-item">
-                        <div class="recommendation-category">
-                            <i class="fas fa-arrow-right"></i> {{ rec.category }}
+                    <div class="recommendation-card">
+                        <div class="recommendation-header">
+                            <div class="recommendation-rank">Rank #{{ rec.rank or loop.index }}</div>
+                            <div class="monthly-saving">${{ rec.monthly_saving }}/month</div>
                         </div>
-                        <div class="recommendation-description">{{ rec.description }}</div>
-                        {% if rec.estimated_savings %}
-                        <div class="recommendation-savings">
-                            <i class="fas fa-dollar-sign"></i> Estimated Savings: ${{ rec.estimated_savings }}
+                        
+                        <div class="resource-info">
+                            <span class="resource-id">{{ rec.resource_id }}</span>
+                            <span class="resource-type">{{ rec.resource_type }}</span>
+                            {% if rec.risk_assessment %}
+                            <span class="risk-badge risk-{{ rec.risk_assessment.lower() }}">{{ rec.risk_assessment }} Risk</span>
+                            {% endif %}
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <strong>Action:</strong> {{ rec.action_summary }}
+                            {% if rec.implementation_time %}
+                            <br><small><i class="fas fa-clock"></i> Time needed: {{ rec.implementation_time }}</small>
+                            {% endif %}
+                        </div>
+                        
+                        {% if rec.step_by_step %}
+                        <div class="implementation-steps">
+                            <strong><i class="fas fa-list-ol"></i> Implementation Steps:</strong>
+                            {% for step in rec.step_by_step %}
+                            <div class="step">
+                                <span class="step-number">{{ loop.index }}</span>{{ step }}
+                            </div>
+                            {% endfor %}
                         </div>
                         {% endif %}
                     </div>
                     {% endfor %}
                 </div>
+                {% endif %}
                 
-                <div class="embed-info">
-                    <h3><i class="fas fa-code"></i> Embed This Dashboard</h3>
-                    <p>Use this code to embed the dashboard in your website:</p>
-                    <div class="embed-code">
-                        &lt;iframe src="[DASHBOARD_URL]" width="100%" height="600px" frameborder="0" allowfullscreen&gt;&lt;/iframe&gt;
+                <!-- Savings by Service -->
+                {% if savings_by_service %}
+                <div class="services-breakdown">
+                    <h2 class="section-title"><i class="fas fa-chart-pie"></i> Savings by AWS Service</h2>
+                    {% for service, saving in savings_by_service.items() %}
+                    {% if saving > 0 %}
+                    <div class="service-item">
+                        <span class="service-name">{{ service }}</span>
+                        <span class="service-saving">${{ saving }}/month</span>
                     </div>
+                    {% endif %}
+                    {% endfor %}
                 </div>
+                {% endif %}
                 
+                <!-- Implementation Timeline -->
+                {% if implementation_plan %}
+                <div class="implementation-timeline">
+                    <h2 class="section-title"><i class="fas fa-calendar-alt"></i> Implementation Plan</h2>
+                    
+                    {% if implementation_plan.immediate_actions %}
+                    <div class="timeline-section">
+                        <div class="timeline-title"><i class="fas fa-play"></i> Start Immediately</div>
+                        {% for action in implementation_plan.immediate_actions %}
+                        <div class="timeline-item">{{ action }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if implementation_plan.this_week %}
+                    <div class="timeline-section">
+                        <div class="timeline-title"><i class="fas fa-calendar-week"></i> This Week</div>
+                        {% for action in implementation_plan.this_week %}
+                        <div class="timeline-item">{{ action }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if implementation_plan.this_month %}
+                    <div class="timeline-section">
+                        <div class="timeline-title"><i class="fas fa-calendar"></i> This Month</div>
+                        {% for action in implementation_plan.this_month %}
+                        <div class="timeline-item">{{ action }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if implementation_plan.total_time_investment %}
+                    <div style="text-align: center; margin-top: 20px; padding: 15px; background: #ecf0f1; border-radius: 8px;">
+                        <strong>Total time investment: {{ implementation_plan.total_time_investment }}</strong>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                <!-- Footer -->
                 <div class="footer">
                     <p>Dashboard ID: {{ dashboard_id }} | Powered by Amazon Q + Bedrock Analytics</p>
-                    <p><small>Static React Dashboard - Optimized for Embedding</small></p>
+                    <p><small>Focus on actionable cost savings - No complex charts, just results!</small></p>
                 </div>
             </div>
-            
-            <!-- Dashboard Data for React Components -->
-            <script type="application/json" id="dashboard-data">
-                {
-                    "title": "{{ title }}",
-                    "dashboard_id": "{{ dashboard_id }}",
-                    "timestamp": "{{ timestamp }}",
-                    "summary": {{ summary | tojson }},
-                    "key_metrics": {{ key_metrics | tojson }},
-                    "recommendations": {{ recommendations | tojson }}
-                }
-            </script>
-            
-            <!-- React Dashboard Component Initialization -->
-            <script>
-                // This script ensures the dashboard is ready for React rendering if needed
-                window.DashboardData = JSON.parse(document.getElementById('dashboard-data').textContent);
-                
-                // Event for external React apps to hook into
-                window.dispatchEvent(new CustomEvent('dashboardReady', { 
-                    detail: window.DashboardData 
-                }));
-                
-                console.log('React-ready dashboard loaded with data:', window.DashboardData);
-            </script>
         </body>
         </html>
         """
 
     def get_static_assets(self) -> Dict[str, str]:
-        """Return additional CSS/JS files optimized for React static serving."""
-        return {
-            "styles.css": """
-                /* Enhanced styles for React dashboard static serving */
-                .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 3px; }
-                .metric { font-size: 1.2em; font-weight: bold; color: #007bff; }
-                .loading { text-align: center; padding: 50px; color: #6c757d; }
-                .error { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 10px 0; }
-                
-                /* React component ready styles */
-                .react-dashboard-root { width: 100%; height: 100%; }
-                .chart-responsive { width: 100%; min-height: 300px; }
-                .dashboard-embed { border: none; overflow: hidden; }
-                
-                /* Mobile-first responsive design for static serving */
-                @media (max-width: 480px) {
-                    .metrics-grid { grid-template-columns: 1fr; gap: 10px; }
-                    .container { padding: 10px; }
-                    .chart-container { padding: 15px; }
-                }
-            """,
-            "dashboard.js": """
-                // React dashboard utilities for static serving
-                window.DashboardUtils = {
-                    formatCurrency: function(amount) {
-                        return new Intl.NumberFormat('en-US', {
-                            style: 'currency',
-                            currency: 'USD'
-                        }).format(amount);
-                    },
-                    
-                    formatPercentage: function(value) {
-                        return new Intl.NumberFormat('en-US', {
-                            style: 'percent',
-                            minimumFractionDigits: 1
-                        }).format(value / 100);
-                    },
-                    
-                    // Hook for external React applications
-                    onReactMount: function(callback) {
-                        if (window.DashboardData) {
-                            callback(window.DashboardData);
-                        } else {
-                            window.addEventListener('dashboardReady', function(event) {
-                                callback(event.detail);
-                            });
-                        }
-                    }
-                };
-                
-                // Enable smooth scrolling for static serving
-                document.addEventListener('DOMContentLoaded', function() {
-                    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-                        anchor.addEventListener('click', function (e) {
-                            e.preventDefault();
-                            document.querySelector(this.getAttribute('href')).scrollIntoView({
-                                behavior: 'smooth'
-                            });
-                        });
-                    });
-                });
-            """,
-            "manifest.json": json.dumps({
-                "name": "Cost Optimization Dashboard",
-                "short_name": "Dashboard",
-                "description": "AWS Cost Optimization Dashboard powered by Amazon Q and Bedrock",
-                "start_url": "/",
-                "display": "standalone",
-                "background_color": "#ffffff",
-                "theme_color": "#2c3e50",
-                "icons": []
-            })
-        }
+        """Return additional CSS/JS files optimized for React static serving (deprecated)."""
+        # This method is deprecated as we now use simple HTML dashboards
+        return {}

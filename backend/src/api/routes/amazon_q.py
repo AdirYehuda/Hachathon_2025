@@ -381,3 +381,47 @@ async def comprehensive_cost_analysis(
     except Exception as e:
         logger.error(f"Error in comprehensive analysis: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analyze/for-dashboard", response_model=dict)
+async def query_for_dashboard_creation(
+    request: CostOptimizationQuery,
+    amazon_q: AmazonQServiceDep,
+    config_valid: ConfigValidationDep,
+    services: List[str] = None,
+):
+    """
+    Query Amazon Q specifically for dashboard creation with enhanced prompting.
+    
+    This endpoint explicitly tells Amazon Q that the output will be processed by another
+    LLM system to create comprehensive cost optimization dashboards, resulting in more
+    detailed, specific, and actionable data with exact resource identifiers and cost calculations.
+    """
+    try:
+        services_list = services or ["EC2", "EBS", "S3", "Lambda", "RDS"]
+        logger.info(f"Querying Amazon Q for dashboard creation: {request.query[:100]}...")
+        logger.info(f"Services to analyze: {services_list}")
+
+        # Use the new dashboard-specific query method
+        result = await amazon_q.query_for_dashboard_creation(
+            query=request.query,
+            services=services_list
+        )
+
+        response_data = AmazonQResponse(
+            query=f"Dashboard creation query for {', '.join(services_list)}: {request.query}",
+            response=result["response"],
+            conversation_id=result.get("conversation_id"),
+            source_attributions=result.get("source_attributions", []),
+            timestamp=datetime.utcnow().isoformat(),
+            query_type="dashboard_creation",
+        )
+
+        return create_response(
+            data=response_data.dict(),
+            message=f"Dashboard-specific analysis completed for {len(services_list)} services with enhanced detail",
+        )
+
+    except Exception as e:
+        logger.error(f"Error in dashboard creation query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
